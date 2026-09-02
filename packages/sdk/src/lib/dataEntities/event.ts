@@ -72,7 +72,11 @@ export const parseTypedLog = <
 
   if (
     log.topics[0] === topic &&
-    (!expectedAddress ||
+    // Only skip the address check when the caller genuinely omitted the
+    // argument. A falsy-but-provided value (e.g. an empty string from a
+    // misconfigured network) must fail closed - rejecting every log - not
+    // silently fall back to accepting logs from any address.
+    (expectedAddress === undefined ||
       log.address.toLowerCase() === expectedAddress.toLowerCase())
   ) {
     return iFace.parseLog(log).args as EventType<TContract, TFilterName>
