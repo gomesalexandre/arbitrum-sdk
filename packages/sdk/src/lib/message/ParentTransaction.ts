@@ -127,35 +127,59 @@ export class ParentTransactionReceipt implements TransactionReceipt {
 
   /**
    * Get any MessageDelivered events that were emitted during this transaction
+   * @param bridgeAddress When provided, only logs actually emitted by this
+   * address are accepted. This transaction's logs come from a full receipt,
+   * which can contain events from *any* contract the transaction touched -
+   * without this check, a different contract could forge a log matching
+   * MessageDelivered's signature and have it parsed as a real bridge event.
+   * Omitting it preserves the previous (unscoped) behavior for callers that
+   * don't have a known bridge address on hand.
    * @returns
    */
-  public getMessageDeliveredEvents(): EventArgs<MessageDeliveredEvent>[] {
-    return parseTypedLogs(Bridge__factory, this.logs, 'MessageDelivered')
+  public getMessageDeliveredEvents(
+    bridgeAddress?: string
+  ): EventArgs<MessageDeliveredEvent>[] {
+    return parseTypedLogs(
+      Bridge__factory,
+      this.logs,
+      'MessageDelivered',
+      bridgeAddress
+    )
   }
 
   /**
    * Get any InboxMessageDelivered events that were emitted during this transaction
+   * @param inboxAddress When provided, only logs actually emitted by this
+   * address are accepted - see {@link getMessageDeliveredEvents}
    * @returns
    */
-  public getInboxMessageDeliveredEvents() {
+  public getInboxMessageDeliveredEvents(inboxAddress?: string) {
     return parseTypedLogs(
       Inbox__factory,
       this.logs,
-      'InboxMessageDelivered(uint256,bytes)'
+      'InboxMessageDelivered(uint256,bytes)',
+      inboxAddress
     )
   }
 
   /**
    * Get combined data for any InboxMessageDelivered and MessageDelivered events
    * emitted during this transaction
+   * @param bridgeAddress When provided, scopes MessageDelivered events to
+   * this address - see {@link getMessageDeliveredEvents}
+   * @param inboxAddress When provided, scopes InboxMessageDelivered events to
+   * this address - see {@link getInboxMessageDeliveredEvents}
    * @returns
    */
-  public getMessageEvents(): {
+  public getMessageEvents(
+    bridgeAddress?: string,
+    inboxAddress?: string
+  ): {
     inboxMessageEvent: EventArgs<InboxMessageDeliveredEvent>
     bridgeMessageEvent: EventArgs<MessageDeliveredEvent>
   }[] {
-    const bridgeMessages = this.getMessageDeliveredEvents()
-    const inboxMessages = this.getInboxMessageDeliveredEvents()
+    const bridgeMessages = this.getMessageDeliveredEvents(bridgeAddress)
+    const inboxMessages = this.getInboxMessageDeliveredEvents(inboxAddress)
 
     if (bridgeMessages.length !== inboxMessages.length) {
       throw new ArbSdkError(
@@ -197,8 +221,9 @@ export class ParentTransactionReceipt implements TransactionReceipt {
   public async getEthDeposits(
     childProvider: Provider
   ): Promise<EthDepositMessage[]> {
+    const network = await getArbitrumNetwork(childProvider)
     return Promise.all(
-      this.getMessageEvents()
+      this.getMessageEvents(network.ethBridge.bridge, network.ethBridge.inbox)
         .filter(
           e =>
             e.bridgeMessageEvent.kind ===
@@ -233,9 +258,9 @@ export class ParentTransactionReceipt implements TransactionReceipt {
       )
     }
 
-    const messageNums = this.getInboxMessageDeliveredEvents().map(
-      msg => msg.messageNum
-    )
+    const messageNums = this.getInboxMessageDeliveredEvents(
+      network.ethBridge.inbox
+    ).map(msg => msg.messageNum)
 
     return messageNums.map(
       messageNum =>
@@ -271,7 +296,10 @@ export class ParentTransactionReceipt implements TransactionReceipt {
       )
     }
 
-    const events = this.getMessageEvents()
+    const events = this.getMessageEvents(
+      network.ethBridge.bridge,
+      network.ethBridge.inbox
+    )
     return events
       .filter(
         e =>
