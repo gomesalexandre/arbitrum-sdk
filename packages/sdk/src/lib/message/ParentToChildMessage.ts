@@ -423,11 +423,13 @@ export class ParentToChildMessageReader extends ParentToChildMessage {
             }
           )
           if (keepaliveEvents.length > 0) {
-            const latestNewTimeout = keepaliveEvents
-              .map(e => e.event.newTimeout.toNumber())
-              .sort()
-              .reverse()[0]
-            if (latestNewTimeout > timeout) timeout = latestNewTimeout
+            // Array.prototype.sort() is lexicographic by default, which is
+            // wrong for numbers (e.g. [900, 1000].sort() -> [1000, 900]) -
+            // use a genuine numeric max instead.
+            timeout = keepaliveEvents.reduce(
+              (latest, e) => Math.max(latest, e.event.newTimeout.toNumber()),
+              timeout
+            )
           }
         }
         // the retryable no longer exists, but we've searched beyond the timeout
